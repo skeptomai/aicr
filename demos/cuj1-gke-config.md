@@ -6,11 +6,6 @@ file via `--config` for `recipe`, `bundle`, and `validate`, and finished with
 for the standalone evidence walkthrough). Reproducible inputs in, signed
 recipe-evidence bundle out.
 
-> Note: This demo duplicates a lot of the validation demo from demos/evidence.md. 
->       The will be to generalize the cluster validation and evidence collection 
->       into standalone demo that will work across all services, although whether 
->       that's possible remains to be seen. 
-
 ## Assumptions
 
 * Target cluster is the UAT GKE cluster provisioned by
@@ -22,14 +17,6 @@ recipe-evidence bundle out.
   ```
 
   > Make sure to cleanup after yourself
-
-  Then connect locally:
-
-  ```shell
-  gcloud container clusters get-credentials "aicr-<run-id>" \
-    --region us-central1 --project eidosx
-  kubectl get nodes
-  ```
 
   The cluster has 2× `a3-megagpu-8g` (H100, 8 GPUs/node) GPU nodes labeled
   `nodeGroup=gpu-worker` with taint `dedicated=gpu-workload:NoSchedule`, and
@@ -54,6 +41,17 @@ apiVersion: aicr.nvidia.com/v1alpha1
 metadata:
   name: gke-h100-training
 spec:
+  snapshot:
+    output:
+      path: snapshot.yaml
+    agent:
+      namespace: aicr-validation
+      nodeSelector:
+        nodeGroup: gpu-worker
+      tolerations:
+        - dedicated=gpu-workload:NoSchedule
+        - nvidia.com/gpu=present:NoSchedule
+
   recipe:
     criteria:
       service: gke
@@ -106,16 +104,13 @@ EOF
 
 ## Snapshot
 
-`snapshot` does not read `--config` yet. Capture it manually:
-
 ```shell
-aicr snapshot \
-    --namespace aicr-validation \
-    --node-selector nodeGroup=gpu-worker \
-    --toleration dedicated=gpu-workload:NoSchedule \
-    --toleration nvidia.com/gpu=present:NoSchedule \
-    --output snapshot.yaml
+aicr snapshot --config aicr-config.yaml
 ```
+
+Reads `spec.snapshot.*` from the config — agent namespace, GPU-node
+selector, GPU-taint tolerations, and the `snapshot.yaml` output path are
+all pinned there.
 
 ## Gen Recipe
 

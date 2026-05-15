@@ -132,13 +132,14 @@ func TestValidate_Errors(t *testing.T) {
 			wantSub: "invalid apiVersion",
 		},
 		{
-			name: "no recipe, no bundle, and no validate",
+			name: "no snapshot, no recipe, no bundle, and no validate",
 			mutate: func(c *config.AICRConfig) {
+				c.Spec.Snapshot = nil
 				c.Spec.Recipe = nil
 				c.Spec.Bundle = nil
 				c.Spec.Validate = nil
 			},
-			wantSub: "none of spec.recipe, spec.bundle, spec.validate",
+			wantSub: "none of spec.snapshot, spec.recipe, spec.bundle, spec.validate",
 		},
 		{
 			name: "criteria and snapshot mutually exclusive",
@@ -223,6 +224,80 @@ func TestValidate_Errors(t *testing.T) {
 			err := cfg.Validate()
 			if err == nil {
 				t.Fatalf("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("error %q does not contain %q", err.Error(), tt.wantSub)
+			}
+		})
+	}
+}
+
+// TestValidate_Snapshot exercises Validate on the spec.snapshot section.
+// Cases share the same shape (build a config with snapshot only → call
+// Validate → assert error substring or nil) so they consolidate cleanly.
+func TestValidate_Snapshot(t *testing.T) {
+	tests := []struct {
+		name    string
+		snap    *config.SnapshotSpec
+		wantSub string // "" = expect no error
+	}{
+		{
+			name: "happy path snapshot only",
+			snap: &config.SnapshotSpec{
+				Output: &config.SnapshotOutputSpec{Path: "./snapshot.yaml"},
+				Agent: &config.SnapshotAgentSpec{
+					Namespace:    "aicr-validation",
+					NodeSelector: map[string]string{"nodeGroup": "gpu-worker"},
+					Tolerations:  []string{"dedicated=gpu-workload:NoSchedule"},
+				},
+				Execution: &config.SnapshotExecutionSpec{Timeout: "5m"},
+			},
+		},
+		{
+			name: "invalid timeout",
+			snap: &config.SnapshotSpec{
+				Execution: &config.SnapshotExecutionSpec{Timeout: "abc"},
+			},
+			wantSub: "spec.snapshot.execution.timeout",
+		},
+		{
+			name: "invalid format",
+			snap: &config.SnapshotSpec{
+				Output: &config.SnapshotOutputSpec{Format: "xml"},
+			},
+			wantSub: "spec.snapshot.output.format",
+		},
+		{
+			name: "invalid tolerations",
+			snap: &config.SnapshotSpec{
+				Agent: &config.SnapshotAgentSpec{Tolerations: []string{"::"}},
+			},
+			wantSub: "spec.snapshot.agent.tolerations",
+		},
+		{
+			name: "negative maxNodesPerEntry",
+			snap: &config.SnapshotSpec{
+				Execution: &config.SnapshotExecutionSpec{MaxNodesPerEntry: -1},
+			},
+			wantSub: "spec.snapshot.execution.maxNodesPerEntry",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.AICRConfig{
+				Kind:       config.Kind,
+				APIVersion: config.APIVersion,
+				Spec:       config.Spec{Snapshot: tt.snap},
+			}
+			err := cfg.Validate()
+			if tt.wantSub == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantSub)
 			}
 			if !strings.Contains(err.Error(), tt.wantSub) {
 				t.Errorf("error %q does not contain %q", err.Error(), tt.wantSub)
