@@ -1,10 +1,11 @@
 # Changelog
 
-
-## [0.13.0] - 2026-05-14
+## [0.13.0] - 2026-05-15
 
 ### New Features
 
+- *(tools)* Add install-rc helper for latest RC binary  by [@mchmarny](https://github.com/mchmarny)
+- *(cli)* Add --config support to snapshot command  by [@mchmarny](https://github.com/mchmarny)
 - *(recipes)* Update AKS H100 Dynamo recipe to match working cluster state  by [@Jont828](https://github.com/Jont828)
 - *(bom)* Add CycloneDX 1.6 image BOM generator  by [@mchmarny](https://github.com/mchmarny)
 - *(ci)* Add self-hosted renovate alongside dependabot  by [@njhensley](https://github.com/njhensley)
@@ -35,6 +36,11 @@
 
 ### Bug Fixes
 
+- *(validator)* Accept pre-release tags as release versions  by [@mchmarny](https://github.com/mchmarny)
+- *(bundler)* Synthesize GKE ResourceQuota for critical-priority pods  by [@mchmarny](https://github.com/mchmarny)
+- *(bundler)* Split helmfile bundle into CRD + main sub-helmfiles  by [@mchmarny](https://github.com/mchmarny)
+- *(bundler)* Wire PreManifestFiles through flux deployer with terminal-aware dependsOn  by [@yuanchen8911](https://github.com/yuanchen8911)
+- *(bundler)* Carry localformat createNamespace into helmfile.yaml  by [@yuanchen8911](https://github.com/yuanchen8911)
 - *(ci)* Harden Fern docs CI and configure custom domain  by [@pdmack](https://github.com/pdmack)
 - *(docs)* Replace bare angle-bracket URL that breaks MDX parser  by [@pdmack](https://github.com/pdmack)
 - *(recipes)* Fully-qualify image refs in component manifests  by [@mchmarny](https://github.com/mchmarny)
@@ -53,10 +59,16 @@
 - *(evidence)* Fix a regression in cncf ai conformance evidence collection  by [@yuanchen8911](https://github.com/yuanchen8911)
 - *(ci)* Populate frozen version content in preview build and surface fern errors  by [@pdmack](https://github.com/pdmack)
 - *(validator)* Surface skip reason in CTRF, treat missing constraint as skip  by [@ayuskauskas](https://github.com/ayuskauskas)
+
+### Other Tasks
+
+- *(uat-gcp)* Add skip_delete and skip_tests workflow inputs  by [@mchmarny](https://github.com/mchmarny)
+- *(settings)* Drop unused docs_tools (hugo, node)  by [@mchmarny](https://github.com/mchmarny)
+- *(uat-gcp)* Gate build/push/cleanup steps on skip_tests  by [@mchmarny](https://github.com/mchmarny)
+- *(chainsaw)* Make .settings.yaml the single source of truth  by [@mchmarny](https://github.com/mchmarny)
+- *(demos)* Add config-driven GKE CUJ with evidence verify  by [@mchmarny](https://github.com/mchmarny)
+- Remove notice from release and upgrade deps  by [@mchmarny](https://github.com/mchmarny)
 - Remove tag and timestamp by [@mchmarny](https://github.com/mchmarny)
-
-## [0.13.0-rc1] - 2026-05-14
-
 - Apply code-review findings (errors, watch API, middleware, docs)  by [@mchmarny](https://github.com/mchmarny)
 - Deps: bump github/codeql-action from 4.35.2 to 4.35.3  by [@dependabot[bot]](https://github.com/dependabot[bot])
 - Add top level THIRD_PARTY_NOTICES  by [@ayuskauskas](https://github.com/ayuskauskas)
