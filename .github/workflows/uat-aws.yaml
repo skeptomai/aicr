@@ -53,7 +53,10 @@ jobs:
       DEPLOYMENT_ID: "aicr-uat-${{ github.run_id }}"
       CLUSTER_CONFIG: tests/uat/aws/cluster-config.yaml
       TEST_CONFIG: tests/uat/aws/tests/h100-training-config.yaml
-      EKS_IMAGE: "ghcr.io/mchmarny/cluster/eks@sha256:c631e2bebf605690c6cfbb072cb2116023fd0f6b43c2c4c6ead0416ee586635d"
+      # v0.4.23 — required for the .eks-nested cluster-config schema; the
+      # prior pin (v0.2.6) read .compute.nodeGroups.* directly and failed
+      # Terraform parse with "object with 1 attribute eks".
+      EKS_IMAGE: "ghcr.io/mchmarny/cluster/eks@sha256:57fd2bf77055f8e0090bd7b8e099e7f11fd874f0b5764057439d11f1cd32a8b1"
       VALIDATOR_IMAGE_PREFIX: "ghcr.io/nvidia/aicr-validators"
       VALIDATOR_TAG: "uat-${{ github.run_id }}"
 
