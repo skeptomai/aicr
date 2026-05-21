@@ -161,13 +161,15 @@ jobs:
           helmfile_version: '${{ steps.versions.outputs.helmfile }}'
           helmfile_sha256: '${{ steps.versions.outputs.helmfile_sha256_linux_amd64 }}'
 
-      # Config
+      # Config — v0.4.23+ of the EKS actuator derives the cluster name from
+      # .deployment.id (same as GKE); the previous yq write to .cluster.name
+      # is now an invalid sibling of the typed cluster.eks ProviderConfig
+      # and rejected at YAML unmarshal.
       - name: Update Config
         id: config
         run: |
           set -euox pipefail
           yq -i '.deployment.id = strenv(DEPLOYMENT_ID)' "$CLUSTER_CONFIG"
-          yq -i '.cluster.name = strenv(DEPLOYMENT_ID)' "$CLUSTER_CONFIG"
           cat "$CLUSTER_CONFIG"
 
       # Bringup
