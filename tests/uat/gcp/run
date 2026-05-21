@@ -118,12 +118,30 @@ phase_install() {
   fi
   echo "::endgroup::"
 
-  echo "::group::helmfile apply (timeout ${HELMFILE_TIMEOUT_SECONDS}s)"
-  (
-    cd bundle
-    timeout "${HELMFILE_TIMEOUT_SECONDS}" helmfile apply --skip-diff-on-install
-  )
-  echo "::endgroup::"
+  # Retry helmfile apply on transient cluster-API errors (control-plane
+  # warmup, throttling, etc.). helmfile is idempotent — re-running on a
+  # partial-install state converges on the desired set. Each attempt has
+  # its own per-attempt HELMFILE_TIMEOUT_SECONDS budget; the workflow's
+  # step `timeout-minutes` bounds total wall time.
+  local success=false
+  for attempt in 1 2 3; do
+    echo "::group::helmfile apply attempt ${attempt}/3 (timeout ${HELMFILE_TIMEOUT_SECONDS}s)"
+    if ( cd bundle && timeout "${HELMFILE_TIMEOUT_SECONDS}" helmfile apply --skip-diff-on-install ); then
+      success=true
+      echo "::endgroup::"
+      break
+    fi
+    echo "helmfile apply attempt ${attempt} failed"
+    echo "::endgroup::"
+    if (( attempt < 3 )); then
+      echo "waiting 30s before retry"
+      sleep 30
+    fi
+  done
+  if [[ "${success}" != "true" ]]; then
+    echo "::error::helmfile apply failed after 3 attempts" >&2
+    exit 1
+  fi
 
   echo "::group::Cluster state post-install"
   kubectl get nodes -o wide
