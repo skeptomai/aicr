@@ -118,6 +118,12 @@ type Client struct {
 	dp      recipe.DataProvider
 	source  recipeSource
 
+	// version is threaded into the Builder via recipe.WithVersion so
+	// resolved recipes carry it in Metadata.Version. Set by WithVersion;
+	// applied once in NewClient before the builder is constructed. Doesn't
+	// change after construction, so it doesn't need locking.
+	version string
+
 	// inflight tracks in-flight cache-using operations so Close
 	// can drain them before evicting the per-Client metadata-store
 	// and component-registry caches. Without this, a ResolveRecipe
@@ -176,8 +182,12 @@ func NewClient(opts ...Option) (*Client, error) {
 	// returns — but using the same mu Lock pattern here keeps the
 	// access pattern uniform and makes the field-mutation rule
 	// trivial to verify by grep.
+	builderOpts := []recipe.Option{recipe.WithDataProvider(dp)}
+	if c.version != "" {
+		builderOpts = append(builderOpts, recipe.WithVersion(c.version))
+	}
 	c.mu.Lock()
-	c.builder = recipe.NewBuilder(recipe.WithDataProvider(dp))
+	c.builder = recipe.NewBuilder(builderOpts...)
 	c.dp = dp
 	c.mu.Unlock()
 

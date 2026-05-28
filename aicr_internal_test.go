@@ -101,6 +101,20 @@ func newClientForBundleTest(t *testing.T) *Client {
 	}
 }
 
+// TestWithVersionStored locks in that WithVersion threads the supplied
+// version string onto the Client so the builder can stamp it into recipe
+// metadata.
+func TestWithVersionStored(t *testing.T) {
+	c, err := NewClient(WithRecipeSource(EmbeddedSource()), WithVersion("v9.9.9"))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer c.Close()
+	if c.version != "v9.9.9" {
+		t.Fatalf("version = %q, want v9.9.9", c.version)
+	}
+}
+
 // TestEmbeddedSourceBuildsBareProvider locks in that EmbeddedSource
 // resolves to a bare embedded DataProvider via buildDataProvider —
 // the embedded-only path the REST server and the no-`--data` CLI

@@ -219,6 +219,14 @@ func WithRecipeSource(s RecipeSourceOption) Option {
 	}
 }
 
+// WithVersion sets the version string stamped into resolved recipe
+// metadata (RecipeResult.Metadata.Version). Threaded through to the
+// underlying recipe.Builder via recipe.WithVersion. Typically the
+// consuming binary's build version.
+func WithVersion(version string) Option {
+	return func(c *Client) { c.version = version }
+}
+
 // OCISource describes an OCI registry containing AICR recipes.
 //
 // The tag is optional; if empty, "latest" is assumed by the downstream
