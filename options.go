@@ -233,6 +233,11 @@ func OCISource(registry, tag string) RecipeSourceOption {
 	}
 }
 
+// EmbeddedSource uses only AICR's built-in (embedded) recipe data, no overlay.
+func EmbeddedSource() RecipeSourceOption {
+	return RecipeSourceOption{internal: recipeSource{kind: sourceKindEmbedded}}
+}
+
 // FilesystemSource describes a local filesystem path containing AICR
 // recipes.
 func FilesystemSource(path string) RecipeSourceOption {
@@ -251,6 +256,7 @@ const (
 	sourceKindUnset sourceKind = iota
 	sourceKindOCI
 	sourceKindFilesystem
+	sourceKindEmbedded
 )
 
 // recipeSource is the internal representation passed to the Client.

@@ -374,6 +374,8 @@ func buildDataProvider(s recipeSource) (recipe.DataProvider, error) {
 				"construct layered data provider", err)
 		}
 		return layered, nil
+	case sourceKindEmbedded:
+		return recipe.NewEmbeddedDataProvider(recipe.GetEmbeddedFS(), "."), nil
 	case sourceKindOCI:
 		return nil, errors.NewWithContext(
 			errors.ErrCodeUnavailable,

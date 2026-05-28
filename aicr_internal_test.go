@@ -101,6 +101,20 @@ func newClientForBundleTest(t *testing.T) *Client {
 	}
 }
 
+// TestEmbeddedSourceBuildsBareProvider locks in that EmbeddedSource
+// resolves to a bare embedded DataProvider via buildDataProvider —
+// the embedded-only path the REST server and the no-`--data` CLI
+// case both need (built-in recipe data, no external overlay).
+func TestEmbeddedSourceBuildsBareProvider(t *testing.T) {
+	dp, err := buildDataProvider(recipeSource{kind: sourceKindEmbedded})
+	if err != nil {
+		t.Fatalf("buildDataProvider(embedded): %v", err)
+	}
+	if dp == nil {
+		t.Fatal("expected non-nil embedded data provider")
+	}
+}
+
 // TestBundleComponents_RejectsUnknownKind locks in the change from
 // silent empty bundle (pre-fix) to a clear ErrCodeInvalidRequest
 // (post-fix) when a recipe's component carries a Kind that doesn't
