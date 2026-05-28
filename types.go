@@ -64,6 +64,16 @@ type PhaseResult = validator.PhaseResult
 // docs/integrator/public-api.md "Facade type aliases".
 type Phase = validator.Phase
 
+// Recipe is the full resolved recipe, returned losslessly by the resolve
+// methods. Transparent alias of recipe.RecipeResult; wrapping is tracked by #1078.
+type Recipe = recipe.RecipeResult
+
+// AllowLists fences which criteria values the resolve path accepts (#1078 wraps it).
+type AllowLists = recipe.AllowLists
+
+// Criteria lets REST keep its exact existing HTTP->Criteria parser.
+type Criteria = recipe.Criteria
+
 // Validation phases, re-exported as facade constants so consumers
 // don't need to import pkg/validator to filter by phase. Same
 // Public (evolving) tier as Phase above.
