@@ -824,6 +824,53 @@ func TestResolveRecipeFromCriteriaRejectsOutOfAllowList(t *testing.T) {
 	}
 }
 
+// TestSelectFromRecipe proves the hydrate+select helper mirrors
+// `aicr query`: a dot-path selector extracts a nested value from a
+// resolved recipe, and an empty selector returns the whole hydrated
+// structure. The recipe is resolved from embedded data so the test is
+// hermetic.
+func TestSelectFromRecipe(t *testing.T) {
+	t.Parallel()
+
+	c, err := aicr.NewClient(aicr.WithRecipeSource(aicr.EmbeddedSource()))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer c.Close()
+
+	crit, err := recipe.BuildCriteria(recipe.WithCriteriaAccelerator("h100"), recipe.WithCriteriaIntent("training"))
+	if err != nil {
+		t.Fatalf("BuildCriteria: %v", err)
+	}
+	rec, err := c.ResolveRecipeFromCriteria(context.Background(), crit)
+	if err != nil {
+		t.Fatalf("ResolveRecipeFromCriteria: %v", err)
+	}
+
+	// Dot-path selector into a known embedded value.
+	got, err := aicr.SelectFromRecipe(rec, "components.gpu-operator.values.driver.version")
+	if err != nil {
+		t.Fatalf("SelectFromRecipe(driver.version): %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil value for components.gpu-operator.values.driver.version")
+	}
+
+	// Empty selector returns the entire hydrated structure.
+	all, err := aicr.SelectFromRecipe(rec, "")
+	if err != nil {
+		t.Fatalf("SelectFromRecipe(empty): %v", err)
+	}
+	if all == nil {
+		t.Fatal("expected non-nil hydrated structure for empty selector")
+	}
+
+	// nil recipe is rejected.
+	if _, err := aicr.SelectFromRecipe(nil, ""); err == nil {
+		t.Fatal("expected error for nil recipe, got nil")
+	}
+}
+
 // componentNames extracts a slice of component names from a
 // RecipeResult, suitable for error-message diagnostics. Keeps the
 // assertion logic above readable.
