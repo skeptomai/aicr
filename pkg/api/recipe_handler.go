@@ -271,7 +271,18 @@ func (h *recipeHandler) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	selected, err := aicr.SelectFromRecipe(rec, selector)
+	// Hydrate and select as two steps (rather than the combined
+	// aicr.SelectFromRecipe) to preserve the legacy handler's distinct error
+	// mapping: a hydrate failure surfaces via its own error code (5xx), while a
+	// missing selector path is a 404. rec is *aicr.Recipe (= *recipe.RecipeResult),
+	// so HydrateResult accepts it directly.
+	hydrated, err := recipe.HydrateResult(rec)
+	if err != nil {
+		server.WriteErrorFromErr(w, r, err, "Failed to hydrate recipe", nil)
+		return
+	}
+
+	selected, err := recipe.Select(hydrated, selector)
 	if err != nil {
 		server.WriteError(w, r, http.StatusNotFound, aicrerrors.ErrCodeNotFound,
 			"Selector path not found", false, map[string]any{
