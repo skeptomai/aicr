@@ -238,8 +238,9 @@ func WithAllowLists(al *AllowLists) Option {
 
 // ParseAllowListsFromEnv builds an AllowLists from the AICR_ALLOWED_*
 // environment variables (AICR_ALLOWED_ACCELERATORS, AICR_ALLOWED_SERVICES,
-// AICR_ALLOWED_INTENTS, AICR_ALLOWED_OS). Returns an empty (allow-all)
-// AllowLists when none are set. Pass the result to WithAllowLists.
+// AICR_ALLOWED_INTENTS, AICR_ALLOWED_OS). Returns nil when none are set —
+// WithAllowLists treats a nil AllowLists as allow-all. Pass the result to
+// WithAllowLists.
 func ParseAllowListsFromEnv() (*AllowLists, error) {
 	return recipe.ParseAllowListsFromEnv()
 }

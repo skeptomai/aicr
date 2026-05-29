@@ -195,10 +195,13 @@ func TestHandleQuery_Success(t *testing.T) {
 			target: "/v1/query?accelerator=h100&intent=training&selector=" + selector,
 		},
 		{
+			// QueryRequest.Criteria is a *recipe.Criteria (flat fields), NOT a
+			// RecipeCriteria envelope — a nested {kind,apiVersion,spec} body would
+			// unmarshal to empty criteria and silently resolve the wrong recipe.
 			name:        "POST with selector",
 			method:      http.MethodPost,
 			target:      "/v1/query",
-			body:        `{"criteria":{"kind":"RecipeCriteria","apiVersion":"aicr.nvidia.com/v1alpha1","spec":{"accelerator":"h100","intent":"training"}},"selector":"` + selector + `"}`,
+			body:        `{"criteria":{"accelerator":"h100","intent":"training"},"selector":"` + selector + `"}`,
 			contentType: "application/json",
 		},
 	}
@@ -232,6 +235,54 @@ func TestHandleQuery_Success(t *testing.T) {
 				t.Errorf("expected non-empty string selected value, got %v (%T)", selected, selected)
 			}
 		})
+	}
+}
+
+// TestHandleQuery_POSTMatchesLegacy proves the facade-backed query POST resolves
+// the same criteria as the legacy recipe.Builder handler for an identical flat
+// body — i.e. the POST criteria actually take effect rather than unmarshalling
+// to empty criteria.
+func TestHandleQuery_POSTMatchesLegacy(t *testing.T) {
+	const body = `{"criteria":{"accelerator":"h100","intent":"training"},"selector":"components.gpu-operator.values.driver.version"}`
+
+	newReq := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/v1/query", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	}
+
+	// Facade handler (WithVersion "test").
+	fw := httptest.NewRecorder()
+	newTestHandler(t, nil).HandleQuery(fw, newReq())
+
+	// Legacy handler with the same version.
+	lw := httptest.NewRecorder()
+	recipe.NewBuilder(recipe.WithVersion("test")).HandleQuery(lw, newReq())
+
+	if fw.Code != http.StatusOK || lw.Code != http.StatusOK {
+		t.Fatalf("status: facade=%d legacy=%d (facade body: %s)", fw.Code, lw.Code, fw.Body.String())
+	}
+	if fw.Body.String() != lw.Body.String() {
+		t.Errorf("query POST body mismatch:\n facade=%s\n legacy=%s", fw.Body.String(), lw.Body.String())
+	}
+	var selected string
+	if err := json.Unmarshal(fw.Body.Bytes(), &selected); err != nil || selected == "" {
+		t.Fatalf("expected non-empty resolved driver version, got %q (err %v)", fw.Body.String(), err)
+	}
+}
+
+// TestHandleQuery_SelectorNotFound verifies a missing selector path returns 404
+// (not a 5xx), preserving the legacy handler's hydrate-vs-select error split.
+func TestHandleQuery_SelectorNotFound(t *testing.T) {
+	h := newTestHandler(t, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/v1/query?accelerator=h100&intent=training&selector=components.does.not.exist", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleQuery(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusNotFound, w.Body.String())
 	}
 }
 

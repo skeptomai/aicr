@@ -774,7 +774,7 @@ func TestResolveRecipeFromCriteriaLossless(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildCriteria: %v", err)
 	}
-	rec, err := c.ResolveRecipeFromCriteria(context.Background(), crit)
+	rec, err := c.ResolveRecipeFromCriteria(t.Context(), crit)
 	if err != nil {
 		t.Fatalf("ResolveRecipeFromCriteria: %v", err)
 	}
@@ -814,7 +814,7 @@ func TestResolveRecipeFromCriteriaRejectsOutOfAllowList(t *testing.T) {
 		t.Fatalf("BuildCriteria: %v", err)
 	}
 
-	_, err = c.ResolveRecipeFromCriteria(context.Background(), crit)
+	_, err = c.ResolveRecipeFromCriteria(t.Context(), crit)
 	if err == nil {
 		t.Fatal("expected allowlist rejection for b200, got nil error")
 	}
@@ -842,7 +842,7 @@ func TestSelectFromRecipe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildCriteria: %v", err)
 	}
-	rec, err := c.ResolveRecipeFromCriteria(context.Background(), crit)
+	rec, err := c.ResolveRecipeFromCriteria(t.Context(), crit)
 	if err != nil {
 		t.Fatalf("ResolveRecipeFromCriteria: %v", err)
 	}
