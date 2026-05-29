@@ -115,6 +115,61 @@ func TestWithVersionStored(t *testing.T) {
 	}
 }
 
+// TestEnforceAllowLists exercises the shared allowlist guard directly:
+// a nil allowlist is a no-op (all criteria pass); a configured allowlist
+// rejects out-of-list accelerators while accepting in-list ones. The
+// resolve-path integration is covered end-to-end in aicr_test.go once
+// ResolveRecipeFromCriteria exists.
+func TestEnforceAllowLists(t *testing.T) {
+	t.Parallel()
+
+	h100, err := recipe.BuildCriteria(
+		recipe.WithCriteriaAccelerator("h100"),
+		recipe.WithCriteriaIntent("training"),
+	)
+	if err != nil {
+		t.Fatalf("BuildCriteria h100: %v", err)
+	}
+	b200, err := recipe.BuildCriteria(
+		recipe.WithCriteriaAccelerator("b200"),
+		recipe.WithCriteriaIntent("training"),
+	)
+	if err != nil {
+		t.Fatalf("BuildCriteria b200: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		allowLists *AllowLists
+		criteria   *Criteria
+		wantErr    bool
+	}{
+		{"nil allowlist allows anything", nil, b200, false},
+		{
+			"in-list accelerator passes",
+			&AllowLists{Accelerators: []recipe.CriteriaAcceleratorType{recipe.CriteriaAcceleratorH100}},
+			h100,
+			false,
+		},
+		{
+			"out-of-list accelerator rejected",
+			&AllowLists{Accelerators: []recipe.CriteriaAcceleratorType{recipe.CriteriaAcceleratorH100}},
+			b200,
+			true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := &Client{allowLists: tt.allowLists}
+			err := c.enforceAllowLists(tt.criteria)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("enforceAllowLists() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TestEmbeddedSourceBuildsBareProvider locks in that EmbeddedSource
 // resolves to a bare embedded DataProvider via buildDataProvider —
 // the embedded-only path the REST server and the no-`--data` CLI

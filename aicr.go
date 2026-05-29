@@ -124,6 +124,12 @@ type Client struct {
 	// change after construction, so it doesn't need locking.
 	version string
 
+	// allowLists fences which criteria values the resolve path accepts.
+	// nil means "no fencing — all values allowed". Set by WithAllowLists;
+	// enforced in enforceAllowLists on the shared resolve path. Doesn't
+	// change after construction, so it doesn't need locking.
+	allowLists *AllowLists
+
 	// inflight tracks in-flight cache-using operations so Close
 	// can drain them before evicting the per-Client metadata-store
 	// and component-registry caches. Without this, a ResolveRecipe
@@ -269,6 +275,18 @@ func (c *Client) assertOwns(r *RecipeResult) error {
 			"expectedOwner": fmt.Sprintf("%p", c),
 			"actualOwner":   fmt.Sprintf("%p", r.owner),
 		})
+}
+
+// enforceAllowLists rejects criteria values outside the Client's
+// configured allowlists. When no allowlists are set (the common case),
+// it is a no-op. The underlying AllowLists.ValidateCriteria already
+// returns a pkg/errors-coded error, so the result is returned as-is
+// rather than re-wrapped.
+func (c *Client) enforceAllowLists(criteria *Criteria) error {
+	if c.allowLists == nil {
+		return nil
+	}
+	return c.allowLists.ValidateCriteria(criteria)
 }
 
 // ResolveRecipe maps a RecipeRequest to a concrete validated recipe.

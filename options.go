@@ -17,6 +17,7 @@ package aicr
 import (
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/NVIDIA/aicr/pkg/recipe"
 	"github.com/NVIDIA/aicr/pkg/validator"
 )
 
@@ -225,6 +226,22 @@ func WithRecipeSource(s RecipeSourceOption) Option {
 // consuming binary's build version.
 func WithVersion(version string) Option {
 	return func(c *Client) { c.version = version }
+}
+
+// WithAllowLists fences which criteria values the Client's resolve path
+// accepts. A resolve whose criteria fall outside the allowlist is rejected
+// before the recipe is built. Pass nil (or omit the option) to allow all
+// values. Construct an AllowLists directly or via ParseAllowListsFromEnv.
+func WithAllowLists(al *AllowLists) Option {
+	return func(c *Client) { c.allowLists = al }
+}
+
+// ParseAllowListsFromEnv builds an AllowLists from the AICR_ALLOWED_*
+// environment variables (AICR_ALLOWED_ACCELERATORS, AICR_ALLOWED_SERVICES,
+// AICR_ALLOWED_INTENTS, AICR_ALLOWED_OS). Returns an empty (allow-all)
+// AllowLists when none are set. Pass the result to WithAllowLists.
+func ParseAllowListsFromEnv() (*AllowLists, error) {
+	return recipe.ParseAllowListsFromEnv()
 }
 
 // OCISource describes an OCI registry containing AICR recipes.
