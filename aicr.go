@@ -351,7 +351,7 @@ func (c *Client) ResolveRecipe(ctx context.Context, req RecipeRequest) (*RecipeR
 		return nil, err
 	}
 
-	internal, err := builder.BuildFromCriteria(ctx, criteria)
+	internal, err := c.resolveCriteria(ctx, builder, criteria)
 	if err != nil {
 		// Don't re-wrap with ErrCodeInternal — the builder already
 		// returns a structured error with the appropriate code
@@ -373,6 +373,61 @@ func (c *Client) ResolveRecipe(ctx context.Context, req RecipeRequest) (*RecipeR
 	// is unexported.
 	result.owner = c
 	return result, nil
+}
+
+// resolveCriteria is the shared path: allowlist enforcement + build. Callers
+// snapshot the builder under the read lock and pass it in; they own the lossy-
+// vs-lossless projection and owner stamping.
+func (c *Client) resolveCriteria(ctx context.Context, builder *recipe.Builder, criteria *Criteria) (*recipe.RecipeResult, error) {
+	if err := c.enforceAllowLists(criteria); err != nil {
+		return nil, err
+	}
+	return builder.BuildFromCriteria(ctx, criteria)
+}
+
+// ResolveRecipeFromCriteria resolves a pre-built recipe.Criteria into the
+// FULL pkg/recipe.RecipeResult (the Recipe alias), losslessly — unlike
+// ResolveRecipe, which projects into the lossy facade RecipeResult shape.
+// Use this when the caller already speaks the internal Criteria type (e.g.,
+// a REST handler that parsed criteria from an HTTP request) and needs the
+// complete resolved recipe, including constraints, deployment order, and
+// metadata.
+//
+// Allowlist enforcement (WithAllowLists) applies here just as it does on the
+// shared resolve path: criteria outside the configured allowlist are rejected
+// before the recipe is built.
+//
+// The same guards and synchronization as ResolveRecipe apply: nil receiver,
+// nil context, and nil criteria are rejected with ErrCodeInvalidRequest; a
+// closed Client is rejected; a facade-level timeout bounds the resolve.
+func (c *Client) ResolveRecipeFromCriteria(ctx context.Context, criteria *Criteria) (*Recipe, error) {
+	if c == nil {
+		return nil, errors.New(errors.ErrCodeInvalidRequest, "aicr client not initialized")
+	}
+	if ctx == nil {
+		return nil, errors.New(errors.ErrCodeInvalidRequest, "context is required (got nil)")
+	}
+	if criteria == nil {
+		return nil, errors.New(errors.ErrCodeInvalidRequest, "criteria is required (got nil)")
+	}
+
+	// Snapshot builder under the read lock so a concurrent Close can't
+	// race the read; Add to inflight under the lock so Close's drain
+	// observes the increment. Same protocol as ResolveRecipe.
+	c.mu.RLock()
+	builder := c.builder
+	if builder == nil {
+		c.mu.RUnlock()
+		return nil, errors.New(errors.ErrCodeInvalidRequest, "aicr client not initialized (or already closed)")
+	}
+	c.inflight.Add(1)
+	c.mu.RUnlock()
+	defer c.inflight.Done()
+
+	ctx, cancel := context.WithTimeout(ctx, defaults.RecipeOperationTimeout)
+	defer cancel()
+
+	return c.resolveCriteria(ctx, builder, criteria)
 }
 
 // buildDataProvider constructs an isolated DataProvider for a single

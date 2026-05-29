@@ -757,6 +757,73 @@ spec:
 	}
 }
 
+// TestResolveRecipeFromCriteriaLossless proves the lossless resolve path:
+// ResolveRecipeFromCriteria returns the full pkg/recipe.RecipeResult
+// (not the lossy facade RecipeResult), so callers see ComponentRefs and
+// the threaded Metadata.Version directly.
+func TestResolveRecipeFromCriteriaLossless(t *testing.T) {
+	t.Parallel()
+
+	c, err := aicr.NewClient(aicr.WithRecipeSource(aicr.EmbeddedSource()), aicr.WithVersion("v1.2.3"))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer c.Close()
+
+	crit, err := recipe.BuildCriteria(recipe.WithCriteriaAccelerator("h100"), recipe.WithCriteriaIntent("training"))
+	if err != nil {
+		t.Fatalf("BuildCriteria: %v", err)
+	}
+	rec, err := c.ResolveRecipeFromCriteria(context.Background(), crit)
+	if err != nil {
+		t.Fatalf("ResolveRecipeFromCriteria: %v", err)
+	}
+	if len(rec.ComponentRefs) == 0 {
+		t.Fatal("expected component refs")
+	}
+	if rec.Metadata.Version != "v1.2.3" {
+		t.Fatalf("version not threaded: %q", rec.Metadata.Version)
+	}
+}
+
+// TestResolveRecipeFromCriteriaRejectsOutOfAllowList proves that a Client
+// configured with an allowlist rejects a ResolveRecipeFromCriteria call
+// whose accelerator is outside the allowed set. The allowlist permits only
+// h100; requesting b200 must surface a structured error before any recipe
+// is built.
+func TestResolveRecipeFromCriteriaRejectsOutOfAllowList(t *testing.T) {
+	t.Parallel()
+
+	al := &aicr.AllowLists{
+		Accelerators: []recipe.CriteriaAcceleratorType{recipe.CriteriaAcceleratorH100},
+	}
+	c, err := aicr.NewClient(
+		aicr.WithRecipeSource(aicr.EmbeddedSource()),
+		aicr.WithAllowLists(al),
+	)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	crit, err := recipe.BuildCriteria(
+		recipe.WithCriteriaAccelerator("b200"),
+		recipe.WithCriteriaIntent("training"),
+	)
+	if err != nil {
+		t.Fatalf("BuildCriteria: %v", err)
+	}
+
+	_, err = c.ResolveRecipeFromCriteria(context.Background(), crit)
+	if err == nil {
+		t.Fatal("expected allowlist rejection for b200, got nil error")
+	}
+	var se *aicrerrors.StructuredError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected *aicrerrors.StructuredError, got %T: %v", err, err)
+	}
+}
+
 // componentNames extracts a slice of component names from a
 // RecipeResult, suitable for error-message diagnostics. Keeps the
 // assertion logic above readable.
