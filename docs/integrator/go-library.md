@@ -139,10 +139,86 @@ AICR exposes one production recipe source today; pick it via
 
 | Source | Constructor | Status |
 |--------|-------------|--------|
+| Embedded | `aicr.EmbeddedSource()` | Production. Uses only AICR's built-in recipe data with no external overlay. |
 | Local filesystem | `aicr.FilesystemSource(path)` | Production. Use a directory containing a `registry.yaml` (layered over the embedded recipe data). |
 | OCI registry | `aicr.OCISource(registry, tag)` | **Reserved — not yet implemented.** `NewClient` returns `ErrCodeUnavailable` when this source is selected. |
 
-`FilesystemSource` is the only production-ready source today.
+`EmbeddedSource` resolves against the recipe data compiled into the
+AICR binary — no filesystem path required. Use it when you want the
+recipes AICR shipped with and no local overrides. `FilesystemSource`
+layers an external directory over that same embedded data, so files in
+the directory override their embedded equivalents.
+
+## Client options
+
+Beyond `WithRecipeSource`, `NewClient` accepts these functional options:
+
+```go
+allowLists, err := aicr.ParseAllowListsFromEnv()
+if err != nil {
+	log.Fatal(err)
+}
+
+client, err := aicr.NewClient(
+	aicr.WithRecipeSource(aicr.EmbeddedSource()),
+	aicr.WithVersion("1.2.3"),
+	aicr.WithAllowLists(allowLists),
+)
+```
+
+- **`WithVersion(version string)`** stamps the given version string into
+  resolved recipe metadata (`Recipe.Metadata.Version`). Typically the
+  consuming binary's build version.
+- **`WithAllowLists(al *AllowLists)`** fences which criteria values the
+  Client's resolve path accepts. A resolve whose criteria fall outside
+  the allowlist is rejected before the recipe is built. Pass `nil` (or
+  omit the option) to allow all values.
+- **`ParseAllowListsFromEnv()`** builds an `AllowLists` from the
+  `AICR_ALLOWED_ACCELERATORS`, `AICR_ALLOWED_SERVICES`,
+  `AICR_ALLOWED_INTENTS`, and `AICR_ALLOWED_OS` environment variables.
+  It returns an empty (allow-all) `AllowLists` when none are set. Pass
+  the result to `WithAllowLists`.
+
+`AllowLists` is a transparent alias of `pkg/recipe.AllowLists`; you can
+also construct one directly when you don't want to read from the
+environment.
+
+## Resolving from criteria
+
+`ResolveRecipe` takes the stable `RecipeRequest` shape and returns the
+lossy facade `RecipeResult`. When you already hold a
+`pkg/recipe.Criteria` value — for example, a REST handler that parsed
+criteria from an incoming HTTP request — use `ResolveRecipeFromCriteria`
+to resolve it losslessly into the full `Recipe`:
+
+```go
+rec, err := client.ResolveRecipeFromCriteria(ctx, criteria)
+if err != nil {
+	log.Fatalf("resolve recipe: %v", err)
+}
+```
+
+`Recipe` is a transparent alias of `pkg/recipe.RecipeResult` and carries
+the complete resolved recipe — component references, constraints,
+deployment order, and metadata. `Criteria` is a transparent alias of
+`pkg/recipe.Criteria`. Allowlist enforcement (`WithAllowLists`) applies
+here just as it does on `ResolveRecipe`; a `nil` Client, `nil` context,
+or `nil` criteria each return `ErrCodeInvalidRequest`, and the same
+facade-level timeout bounds the resolve.
+
+To extract a single value from a resolved `Recipe`, use
+`SelectFromRecipe` with a dot-path selector. It hydrates the recipe's
+component values and returns the value at the path; an empty selector
+returns the entire hydrated structure. This mirrors the `aicr query`
+CLI command:
+
+```go
+v, err := aicr.SelectFromRecipe(rec, "components.gpu-operator.values.driver.version")
+if err != nil {
+	log.Fatalf("select: %v", err)
+}
+log.Printf("driver version: %v", v)
+```
 
 ## Errors
 
