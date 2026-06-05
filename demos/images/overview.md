@@ -73,7 +73,7 @@ Card 2 — accent bar NVIDIA Green, icon: circular arrows (reproducibility)
 **Reproducible** — Same inputs → identical deployments, every time
 
 Card 3 — accent bar NVIDIA Green, icon: checklist with magnifying glass
-**Validated** — Constraint, deployment, performance, and conformance checks
+**Validated** — Constraint, deployment, perf, and conformance checks
 
 Card 4 — accent bar NVIDIA Green, icon: chain link with shield
 **Trusted** — SLSA L3 provenance · Sigstore attestations · SBOM
