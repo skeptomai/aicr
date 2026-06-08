@@ -24,6 +24,7 @@ import (
 
 	"github.com/NVIDIA/aicr/pkg/defaults"
 	"github.com/NVIDIA/aicr/pkg/errors"
+	k8spod "github.com/NVIDIA/aicr/pkg/k8s/pod"
 	"github.com/NVIDIA/aicr/validators"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -237,46 +238,14 @@ func containsAllMetrics(text string, required []string) []string {
 	return missing
 }
 
-// podStuckReason inspects a Pod for non-recoverable stuck states and returns a
-// human-readable reason. Returns empty string if the pod is not stuck.
-// Follows the pattern from pkg/validator/agent/wait.go:getJobFailureReasonFromPod.
-func podStuckReason(pod *corev1.Pod) string {
-	for _, cs := range pod.Status.ContainerStatuses {
-		if w := cs.State.Waiting; w != nil {
-			switch w.Reason {
-			case "ImagePullBackOff", "ErrImagePull", "InvalidImageName", "CrashLoopBackOff":
-				return fmt.Sprintf("%s: %s (image: %s)", w.Reason, w.Message, cs.Image)
-			}
-		}
-	}
-	for _, cs := range pod.Status.InitContainerStatuses {
-		if w := cs.State.Waiting; w != nil {
-			switch w.Reason {
-			case "ImagePullBackOff", "ErrImagePull", "InvalidImageName", "CrashLoopBackOff":
-				return fmt.Sprintf("%s: %s (init container, image: %s)", w.Reason, w.Message, cs.Image)
-			}
-		}
-	}
-	for _, cond := range pod.Status.Conditions {
-		if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse &&
-			cond.Reason == string(corev1.PodReasonUnschedulable) {
+// podStuckReason reports a non-recoverable stuck reason for a Pod, or "" if it
+// is not stuck. Thin wrapper over k8spod.StuckReason so existing call sites keep
+// their local vocabulary; the canonical implementation lives in pkg/k8s/pod.
+func podStuckReason(p *corev1.Pod) string { return k8spod.StuckReason(p) }
 
-			return fmt.Sprintf("Unschedulable: %s", cond.Message)
-		}
-	}
-	return ""
-}
-
-// podWaitingStatus returns the first container's waiting reason and message, or "none"
-// if no container is in a waiting state. Used for diagnostic output on timeout.
-func podWaitingStatus(pod *corev1.Pod) string {
-	for _, cs := range pod.Status.ContainerStatuses {
-		if w := cs.State.Waiting; w != nil {
-			return fmt.Sprintf("%s: %s", w.Reason, w.Message)
-		}
-	}
-	return "none"
-}
+// podWaitingStatus returns the first waiting container's reason and message, or
+// "none". Thin wrapper over k8spod.WaitingStatus.
+func podWaitingStatus(p *corev1.Pod) string { return k8spod.WaitingStatus(p) }
 
 // waitForDeletion polls until a resource is gone (NotFound) or the context expires.
 func waitForDeletion(ctx context.Context, getFunc func() error) {

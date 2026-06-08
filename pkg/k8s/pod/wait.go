@@ -302,6 +302,14 @@ func checkPodReady(p *corev1.Pod) (bool, error) {
 			return true, nil
 		}
 	}
+	// Fail fast on non-recoverable states (ImagePullBackOff, ErrImagePull,
+	// InvalidImageName, CrashLoopBackOff, Unschedulable) rather than blocking
+	// until the deadline — the pod will not become ready on its own.
+	if reason := StuckReason(p); reason != "" {
+		return true, errors.NewWithContext(errors.ErrCodeUnavailable,
+			"pod stuck and will not become ready: "+reason,
+			map[string]any{keyNamespace: p.Namespace, keyName: p.Name, keyReason: reason})
+	}
 	if p.Status.Phase == corev1.PodFailed {
 		return true, errors.NewWithContext(errors.ErrCodeInternal, "pod failed", map[string]interface{}{
 			keyNamespace: p.Namespace,

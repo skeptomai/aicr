@@ -17,6 +17,7 @@ package pod_test
 import (
 	"context"
 	stderrors "errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,6 +164,47 @@ func TestWaitForPodReady(t *testing.T) {
 				t.Errorf("WaitForPodReady() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestWaitForPodReady_FastFailOnImagePullBackOff verifies that a pod stuck in
+// ImagePullBackOff fails immediately with an actionable reason instead of
+// blocking until the timeout.
+func TestWaitForPodReady_FastFailOnImagePullBackOff(t *testing.T) {
+	stuck := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "stuck-pod", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "agent",
+				Image: "ghcr.io/nvidia/aicr:v0.14.0",
+				State: corev1.ContainerState{
+					Waiting: &corev1.ContainerStateWaiting{
+						Reason:  "ImagePullBackOff",
+						Message: "Back-off pulling image",
+					},
+				},
+			}},
+		},
+	}
+	//nolint:staticcheck // SA1019: fake.NewSimpleClientset is sufficient for tests
+	client := fake.NewSimpleClientset(stuck)
+
+	start := time.Now()
+	err := pod.WaitForPodReady(context.Background(), client, "default", "stuck-pod", 10*time.Second)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error for ImagePullBackOff pod, got nil")
+	}
+	if !strings.Contains(err.Error(), "ImagePullBackOff") {
+		t.Errorf("error should name the stuck reason, got: %v", err)
+	}
+	if !stderrors.Is(err, aicrerrors.New(aicrerrors.ErrCodeUnavailable, "")) {
+		t.Errorf("expected ErrCodeUnavailable, got: %v", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("expected fast-fail well under the 10s timeout, took %v", elapsed)
 	}
 }
 
