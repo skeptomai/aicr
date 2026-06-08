@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/NVIDIA/aicr/pkg/defaults"
 	aicrerrors "github.com/NVIDIA/aicr/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
@@ -1129,6 +1130,8 @@ func mixinComponentRefSafeForMerge(c ComponentRef) (string, bool) {
 		return "expectedResources", false
 	case c.HealthCheckAsserts != "":
 		return "healthCheckAsserts", false
+	case c.HealthCheckSkip:
+		return "healthCheckSkip", false
 	}
 	return "", true
 }
@@ -1154,6 +1157,59 @@ func applyRegistryDefaults(provider DataProvider, refs []ComponentRef) error {
 		if config != nil {
 			refs[i].ApplyRegistryDefaults(config)
 		}
+	}
+
+	return hydrateHealthCheckAsserts(provider, registry, refs)
+}
+
+// hydrateHealthCheckAsserts loads each registry-declared healthCheck.assertFile
+// through the bound DataProvider and stamps the content onto the matching
+// ComponentRef.HealthCheckAsserts. Hydration is skipped when:
+//   - the overlay has set HealthCheckSkip (rollback / external-data override
+//     path — see ComponentRef field doc), or
+//   - the overlay already declared HealthCheckAsserts inline (the inline value
+//     wins; never silently overwrite caller intent), or
+//   - the registry has no assertFile entry for this component.
+//
+// Disabled components (overrides.enabled: false) ARE hydrated unconditionally
+// so the on-disk recipe.yaml artifact carries the same content regardless of
+// enablement; runtime execution is filtered separately by enabledComponentRefs.
+//
+// Read-bounded with defaults.FileReadTimeout per call to mirror
+// loadComponentRegistryFor — a hung backing store can't park recipe
+// resolution indefinitely. nil provider falls back to the embedded default,
+// matching applyRegistryDefaults / GetComponentRegistryFor.
+//
+//nolint:contextcheck // ctx is bounded internally; threading caller ctx would require a public-API change to applyRegistryDefaults and every transitive caller — same tradeoff as loadComponentRegistryFor.
+func hydrateHealthCheckAsserts(provider DataProvider, registry *ComponentRegistry, refs []ComponentRef) error {
+	if provider == nil {
+		provider = defaultEmbeddedProvider
+	}
+	for i := range refs {
+		ref := &refs[i]
+		if ref.HealthCheckSkip {
+			continue
+		}
+		if ref.HealthCheckAsserts != "" {
+			continue
+		}
+		config := registry.Get(ref.Name)
+		if config == nil || config.HealthCheck.AssertFile == "" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), defaults.FileReadTimeout)
+		data, err := provider.ReadFile(ctx, config.HealthCheck.AssertFile)
+		cancel()
+		if err != nil {
+			return aicrerrors.WrapWithContext(aicrerrors.ErrCodeInternal,
+				"failed to read healthCheck.assertFile",
+				err,
+				map[string]any{
+					"component":  ref.Name,
+					"assertFile": config.HealthCheck.AssertFile,
+				})
+		}
+		ref.HealthCheckAsserts = string(data)
 	}
 	return nil
 }
