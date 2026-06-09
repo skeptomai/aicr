@@ -108,6 +108,32 @@ func (d *Deployer) WaitForPodReady(ctx context.Context, timeout time.Duration) e
 	return pod.WaitForPodReady(ctx, d.clientset, d.config.Namespace, podName, remainingTimeout)
 }
 
+// WaitForPodStarted waits for the Job's Pod to start executing (a container
+// reports Running) or reach a terminal phase, failing fast on non-recoverable
+// pull/scheduling states (ImagePullBackOff, Unschedulable, etc.). It bounds the
+// image-pull / scheduling phase without requiring the Ready condition, so fast
+// Jobs that complete before becoming Ready are not falsely timed out.
+func (d *Deployer) WaitForPodStarted(ctx context.Context, timeout time.Duration) error {
+	watchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	podName, err := d.findOrWatchPodName(watchCtx)
+	if err != nil {
+		return err
+	}
+
+	deadline, ok := watchCtx.Deadline()
+	if !ok {
+		return errors.New(errors.ErrCodeInternal, "context deadline not set")
+	}
+	remainingTimeout := time.Until(deadline)
+	if remainingTimeout <= 0 {
+		return errors.New(errors.ErrCodeTimeout, fmt.Sprintf("timeout waiting for Pod start after %v", timeout))
+	}
+
+	return pod.WaitForPodStarted(ctx, d.clientset, d.config.Namespace, podName, remainingTimeout)
+}
+
 // findPodName finds the pod name by label selector for this Job.
 // One-shot: returns ErrCodeNotFound if no pod is currently labeled.
 // Skips pods that are being deleted or have already failed so an

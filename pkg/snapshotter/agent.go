@@ -67,8 +67,20 @@ type AgentConfig struct {
 	// Tolerations for scheduling on tainted nodes
 	Tolerations []corev1.Toleration
 
-	// Timeout for waiting for Job completion
+	// Timeout is the overall ceiling for the whole deploy→collect→persist
+	// operation. ImagePullTimeout and CollectionTimeout carve phases within it.
 	Timeout time.Duration
+
+	// ImagePullTimeout bounds Phase 1 (pod scheduling + image pull): the time
+	// allowed for the agent pod to start executing or reach a terminal state.
+	// A value <= 0 inherits Timeout. The phase fails fast on ImagePullBackOff
+	// and similar non-recoverable states regardless of this budget.
+	ImagePullTimeout time.Duration
+
+	// CollectionTimeout bounds Phase 2 (in-pod collection + ConfigMap write):
+	// the time allowed after the pod has started for the Job to complete. A
+	// value <= 0 inherits Timeout. Always clamped by the overall Timeout.
+	CollectionTimeout time.Duration
 
 	// Cleanup determines whether to remove Job and RBAC on completion
 	Cleanup bool
@@ -173,23 +185,53 @@ func deployAndWaitForResult(ctx context.Context, clientset k8sclient.Interface, 
 
 	slog.Info("agent deployed successfully")
 
-	timeout := config.Timeout
-	if timeout == 0 {
-		timeout = defaults.K8sJobCompletionTimeout
+	overallTimeout := config.Timeout
+	if overallTimeout <= 0 {
+		overallTimeout = defaults.K8sJobCompletionTimeout
+	}
+	pullTimeout := config.ImagePullTimeout
+	if pullTimeout <= 0 {
+		pullTimeout = overallTimeout
+	}
+	collectionTimeout := config.CollectionTimeout
+	if collectionTimeout <= 0 {
+		collectionTimeout = overallTimeout
 	}
 
-	slog.Info("waiting for Job completion",
-		slog.String("job", agentConfig.JobName),
-		slog.Duration("timeout", timeout))
+	// phaseCtx is the overall ceiling shared by both phases below, so the pull
+	// and collection budgets together can never exceed the overall timeout.
+	phaseCtx, cancelPhase := context.WithTimeout(ctx, overallTimeout)
+	defer cancelPhase()
 
-	// Stream logs in background while waiting for Job completion.
-	// If the pod completes before becoming "ready" (fast Jobs), log streaming
-	// is skipped — WaitForCompletion will still capture the result.
+	// Phase 1: bound pod scheduling + image pull. Fails fast on
+	// ImagePullBackOff / Unschedulable rather than blocking on a stuck pull
+	// until the deadline — the Job-level completion watch is blind to these.
+	slog.Info("waiting for agent pod to start (scheduling + image pull)",
+		slog.String("job", agentConfig.JobName),
+		slog.Duration("imagePullTimeout", pullTimeout))
+	if startErr := deployer.WaitForPodStarted(phaseCtx, pullTimeout); startErr != nil {
+		if logs, logErr := deployer.GetPodLogs(phaseCtx); logErr == nil && logs != "" {
+			fmt.Fprintln(logWriter(), "--- agent logs ---")
+			fmt.Fprintln(logWriter(), logs)
+			fmt.Fprintln(logWriter(), "--- end logs ---")
+		}
+		msg := "agent image pull or pod scheduling failed"
+		if autoInjectedGPUSelector {
+			msg = "agent image pull or pod scheduling failed (auto-injected node selector nvidia.com/gpu.present=true — " +
+				"if no GPU nodes are schedulable, pass --node-selector or --require-gpu explicitly)"
+		}
+		return nil, errors.Wrap(errors.ErrCodeUnavailable, msg, startErr)
+	}
+
+	// Stream logs in background while waiting for Job completion. The pod has
+	// already started (Phase 1), so streaming begins promptly; for a fast Job
+	// that has already finished, WaitForPodReady skips and the result is still
+	// captured by the completion wait below.
 	//
 	// The WaitGroup ensures the goroutine has fully exited before this
 	// function returns, so log writes cannot interleave with the caller's
 	// output after the snapshot has been returned.
-	logCtx, cancelLogs := context.WithCancel(ctx)
+	logCtx, cancelLogs := context.WithCancel(phaseCtx)
 	var logWG sync.WaitGroup
 	defer func() {
 		cancelLogs()
@@ -218,8 +260,12 @@ func deployAndWaitForResult(ctx context.Context, clientset k8sclient.Interface, 
 		}
 	}()
 
-	if waitErr := deployer.WaitForCompletion(ctx, timeout); waitErr != nil {
-		if logs, logErr := deployer.GetPodLogs(ctx); logErr == nil && logs != "" {
+	// Phase 2: bound in-pod collection + ConfigMap write.
+	slog.Info("waiting for Job completion (collection)",
+		slog.String("job", agentConfig.JobName),
+		slog.Duration("collectionTimeout", collectionTimeout))
+	if waitErr := deployer.WaitForCompletion(phaseCtx, collectionTimeout); waitErr != nil {
+		if logs, logErr := deployer.GetPodLogs(phaseCtx); logErr == nil && logs != "" {
 			fmt.Fprintln(logWriter(), "--- agent logs ---")
 			fmt.Fprintln(logWriter(), logs)
 			fmt.Fprintln(logWriter(), "--- end logs ---")

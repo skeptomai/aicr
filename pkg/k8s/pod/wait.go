@@ -235,20 +235,22 @@ func isPodTerminal(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed
 }
 
-// WaitForPodReady waits for a pod to become ready within the specified timeout.
-// Returns nil if pod becomes ready, error if timeout or pod fails.
-// Uses the watch API for efficient monitoring with a fast-path Get for
-// pods that are already ready or failed.
-func WaitForPodReady(ctx context.Context, client kubernetes.Interface, namespace, name string, timeout time.Duration) error {
+// watchPodUntil watches a single pod and returns when check reports the pod is
+// done (true), propagating check's error. It performs a fast-path Get first,
+// then uses the watch API, with a re-Get fallback when the watch channel closes
+// before the condition is met. Callers supply the terminal condition via check
+// (e.g. checkPodReady, checkPodStarted), so the watch/re-Get scaffolding lives
+// in exactly one place.
+func watchPodUntil(ctx context.Context, client kubernetes.Interface, namespace, name string, timeout time.Duration, check func(*corev1.Pod) (bool, error)) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Fast path: pod may already be ready or failed.
+	// Fast path: pod may already satisfy the condition (ready, started, stuck).
 	current, err := client.CoreV1().Pods(namespace).Get(timeoutCtx, name, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrap(errors.ErrCodeInternal, "failed to get pod", err)
 	}
-	if done, checkErr := checkPodReady(current); done {
+	if done, checkErr := check(current); done {
 		return checkErr
 	}
 
@@ -264,34 +266,41 @@ func WaitForPodReady(ctx context.Context, client kubernetes.Interface, namespace
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			return errors.Wrap(errors.ErrCodeTimeout, "pod ready wait timeout", timeoutCtx.Err())
+			return errors.Wrap(errors.ErrCodeTimeout, "pod wait timeout", timeoutCtx.Err())
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
 				// Watch channels close routinely on apiserver hiccups;
 				// re-Get and reclassify instead of declaring failure.
 				if rcErr := timeoutCtx.Err(); rcErr != nil {
-					return errors.Wrap(errors.ErrCodeTimeout, "pod ready wait timeout", rcErr)
+					return errors.Wrap(errors.ErrCodeTimeout, "pod wait timeout", rcErr)
 				}
 				current, getErr := client.CoreV1().Pods(namespace).Get(timeoutCtx, name, metav1.GetOptions{})
 				if getErr != nil {
 					return classifyReGetError(timeoutCtx, "pod watch closed and re-Get failed", getErr)
 				}
-				if done, checkErr := checkPodReady(current); done {
+				if done, checkErr := check(current); done {
 					return checkErr
 				}
 				return errors.NewWithContext(errors.ErrCodeUnavailable,
-					"pod watch closed before pod was ready",
-					map[string]any{keyNamespace: namespace, keyName: name, "phase": string(current.Status.Phase)})
+					"pod watch closed before condition met",
+					map[string]any{keyNamespace: namespace, keyName: name, keyPhase: string(current.Status.Phase)})
 			}
 			watchedPod, isPod := event.Object.(*corev1.Pod)
 			if !isPod {
 				continue
 			}
-			if done, checkErr := checkPodReady(watchedPod); done {
+			if done, checkErr := check(watchedPod); done {
 				return checkErr
 			}
 		}
 	}
+}
+
+// WaitForPodReady waits for a pod to become ready within the specified timeout.
+// Returns nil if the pod becomes ready, error on timeout, pod failure, or a
+// fast-fail on a non-recoverable state (ImagePullBackOff and similar).
+func WaitForPodReady(ctx context.Context, client kubernetes.Interface, namespace, name string, timeout time.Duration) error {
+	return watchPodUntil(ctx, client, namespace, name, timeout, checkPodReady)
 }
 
 // checkPodReady returns (true, nil) when the pod is Ready, (true, error) when

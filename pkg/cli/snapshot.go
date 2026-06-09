@@ -95,6 +95,8 @@ type snapshotCmdOptions struct {
 	nodeSelector       map[string]string
 	tolerations        []corev1.Toleration
 	timeout            time.Duration
+	imagePullTimeout   time.Duration
+	collectionTimeout  time.Duration
 	cleanup            bool
 	debug              bool
 	privileged         bool
@@ -120,6 +122,8 @@ func (o *snapshotCmdOptions) toAgentConfig() *snapshotter.AgentConfig {
 		NodeSelector:       o.nodeSelector,
 		Tolerations:        o.tolerations,
 		Timeout:            o.timeout,
+		ImagePullTimeout:   o.imagePullTimeout,
+		CollectionTimeout:  o.collectionTimeout,
 		Cleanup:            o.cleanup,
 		Output:             o.tmplOpts.outputPath,
 		Debug:              o.debug,
@@ -139,7 +143,7 @@ func (o *snapshotCmdOptions) toAgentConfig() *snapshotter.AgentConfig {
 // over config values. Returns a fully-typed snapshotCmdOptions that callers
 // can pass to the snapshotter without further parsing.
 func parseSnapshotCmdOptions(cmd *cli.Command, cfg *config.AICRConfig) (*snapshotCmdOptions, error) {
-	if err := validateSingleValueFlags(cmd, "namespace", "image", "job-name", "service-account-name", "timeout", "template", "max-nodes-per-entry", "runtime-class", "output", "format", "config", "os", "requests", "limits"); err != nil {
+	if err := validateSingleValueFlags(cmd, "namespace", "image", "job-name", "service-account-name", "timeout", "image-pull-timeout", "collection-timeout", "template", "max-nodes-per-entry", "runtime-class", "output", "format", "config", "os", "requests", "limits"); err != nil {
 		return nil, err
 	}
 
@@ -216,6 +220,8 @@ func parseSnapshotCmdOptions(cmd *cli.Command, cfg *config.AICRConfig) (*snapsho
 		nodeSelector:       nodeSelector,
 		tolerations:        tolerations,
 		timeout:            durationFlagOrConfig(cmd, "timeout", resolved.Timeout),
+		imagePullTimeout:   cmd.Duration("image-pull-timeout"),
+		collectionTimeout:  cmd.Duration("collection-timeout"),
 		cleanup:            !boolFlagOrConfig(cmd, "no-cleanup", resolved.NoCleanup),
 		debug:              cmd.Bool("debug"),
 		privileged:         boolFlagOrConfig(cmd, "privileged", derefBoolOr(resolved.Privileged, true)),
@@ -327,8 +333,18 @@ func snapshotCmdFlags() []cli.Flag {
 		},
 		&cli.DurationFlag{
 			Name:     "timeout",
-			Usage:    "Timeout for waiting for Job completion",
+			Usage:    "Overall timeout for the snapshot operation (scheduling + image pull + collection)",
 			Value:    defaults.CLISnapshotTimeout,
+			Category: catAgentDeployment,
+		},
+		&cli.DurationFlag{
+			Name:     "image-pull-timeout",
+			Usage:    "Max time for the agent pod to start (scheduling + image pull) before failing; 0 inherits --timeout. Fails fast on ImagePullBackOff regardless.",
+			Category: catAgentDeployment,
+		},
+		&cli.DurationFlag{
+			Name:     "collection-timeout",
+			Usage:    "Max time for in-pod collection and result write after the pod starts; 0 inherits --timeout. Always clamped by --timeout.",
 			Category: catAgentDeployment,
 		},
 		&cli.BoolFlag{

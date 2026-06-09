@@ -20,5 +20,6 @@ const (
 	keyName      = "name"
 	keyReason    = "reason"
 	keyMessage   = "message"
+	keyPhase     = "phase"
 	keyURI       = "uri"
 )
