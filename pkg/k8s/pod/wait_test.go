@@ -208,6 +208,79 @@ func TestWaitForPodReady_FastFailOnImagePullBackOff(t *testing.T) {
 	}
 }
 
+// TestWaitForPodReady_FastFailOnWatchTransition exercises the watch path: a pod
+// that starts ContainerCreating (not stuck) and only later transitions to
+// ImagePullBackOff must be detected via a watch event and fail fast — not just
+// the already-stuck fast-path Get.
+func TestWaitForPodReady_FastFailOnWatchTransition(t *testing.T) {
+	pending := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "agent",
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}},
+			}},
+		},
+	}
+	//nolint:staticcheck // SA1019: fake.NewSimpleClientset is sufficient for tests
+	client := fake.NewSimpleClientset(pending)
+	watcher := watch.NewFake()
+	client.PrependWatchReactor("pods", k8stesting.DefaultWatchReactor(watcher, nil))
+
+	// FakeWatcher.Modify sends on an unbuffered channel, so it blocks until
+	// WaitForPodReady's select actually reads the event — no sleep needed.
+	go func() {
+		stuck := pending.DeepCopy()
+		stuck.Status.ContainerStatuses[0].Image = "ghcr.io/nvidia/aicr:v0.14.0"
+		stuck.Status.ContainerStatuses[0].State.Waiting = &corev1.ContainerStateWaiting{
+			Reason: "ImagePullBackOff", Message: "Back-off pulling image",
+		}
+		watcher.Modify(stuck)
+	}()
+
+	err := pod.WaitForPodReady(context.Background(), client, "default", "p", 10*time.Second)
+	if err == nil {
+		t.Fatal("expected error after watch transition to ImagePullBackOff, got nil")
+	}
+	if !strings.Contains(err.Error(), "ImagePullBackOff") {
+		t.Errorf("error should name the stuck reason, got: %v", err)
+	}
+	if !stderrors.Is(err, aicrerrors.New(aicrerrors.ErrCodeUnavailable, "")) {
+		t.Errorf("expected ErrCodeUnavailable, got: %v", err)
+	}
+}
+
+// TestWaitForPodReady_ReadyAfterContainerCreating guards against an over-broad
+// stuck list: a pod that is ContainerCreating and then becomes Ready must
+// return nil, not be killed as "stuck".
+func TestWaitForPodReady_ReadyAfterContainerCreating(t *testing.T) {
+	pending := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "agent",
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}},
+			}},
+		},
+	}
+	//nolint:staticcheck // SA1019: fake.NewSimpleClientset is sufficient for tests
+	client := fake.NewSimpleClientset(pending)
+	watcher := watch.NewFake()
+	client.PrependWatchReactor("pods", k8stesting.DefaultWatchReactor(watcher, nil))
+
+	go func() {
+		ready := pending.DeepCopy()
+		ready.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+		watcher.Modify(ready)
+	}()
+
+	if err := pod.WaitForPodReady(context.Background(), client, "default", "p", 10*time.Second); err != nil {
+		t.Errorf("expected nil after pod became ready, got: %v", err)
+	}
+}
+
 // TestWaitForPodSucceeded_WatchClosedReGet exercises the watch-channel-close
 // re-Get branch: the watcher closes without emitting a terminal event, and
 // the re-Get observes the pod has since reached Succeeded. The wait must
