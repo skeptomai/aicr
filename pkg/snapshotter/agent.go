@@ -289,6 +289,68 @@ func deployAndWaitForResult(ctx context.Context, clientset k8sclient.Interface, 
 	return snapshotData, nil
 }
 
+// RunPreflight deploys a lightweight busybox probe with the same placement the
+// agent would use and reports whether the agent pod could schedule and start on
+// the target cluster — a fast, cheap check before committing to the full
+// (multi-gigabyte) agent image pull. The human-readable report is written to w.
+func RunPreflight(ctx context.Context, config *AgentConfig, w io.Writer) error {
+	if config == nil {
+		return errors.New(errors.ErrCodeInvalidRequest, "agent config is required")
+	}
+
+	clientset, err := getKubeClient(config.Kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	return runPreflight(ctx, clientset, config, w)
+}
+
+// runPreflight is the testable core of RunPreflight: it takes an already-built
+// clientset so unit tests can supply a fake.
+func runPreflight(ctx context.Context, clientset k8sclient.Interface, config *AgentConfig, w io.Writer) error {
+	autoInjected := maybeInjectGPUNodeSelector(ctx, clientset, config)
+
+	deployer := agent.NewDeployer(clientset, agent.Config{
+		Namespace:        config.Namespace,
+		JobName:          config.JobName,
+		Image:            config.Image,
+		ImagePullSecrets: config.ImagePullSecrets,
+		NodeSelector:     config.NodeSelector,
+		Tolerations:      config.Tolerations,
+		RuntimeClassName: config.RuntimeClassName,
+	})
+
+	// The probe is bounded by the image-pull budget (it is the scheduling +
+	// pull phase), falling back to the overall timeout, then the default.
+	timeout := config.ImagePullTimeout
+	if timeout <= 0 {
+		timeout = config.Timeout
+	}
+	if timeout <= 0 {
+		timeout = defaults.K8sJobCompletionTimeout
+	}
+
+	fmt.Fprintf(w, "Preflight: probing scheduling and image-pull readiness with %s ...\n", defaults.ProbeImage)
+	result, err := deployer.Preflight(ctx, timeout)
+	if err != nil {
+		msg := "Preflight FAILED"
+		if autoInjected {
+			msg += " (auto-injected node selector nvidia.com/gpu.present=true; pass --node-selector or --require-gpu if your GPU nodes differ)"
+		}
+		fmt.Fprintf(w, "%s: %v\n", msg, err)
+		return err
+	}
+
+	node := result.Node
+	if node == "" {
+		node = "(unknown)"
+	}
+	fmt.Fprintf(w, "Preflight OK: a pod with the agent's placement scheduled and started on node %s.\n", node)
+	fmt.Fprintf(w, "Note: this verifies scheduling + container start with a small (~2 MB) image; it does not pull the agent image %q. The real snapshot's image-pull phase fails fast if that pull fails.\n", config.Image)
+	return nil
+}
+
 // getKubeClient returns a Kubernetes client, using the kubeconfig override if provided.
 func getKubeClient(kubeconfig string) (k8sclient.Interface, error) {
 	var clientset k8sclient.Interface

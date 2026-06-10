@@ -348,6 +348,11 @@ func snapshotCmdFlags() []cli.Flag {
 			Category: catAgentDeployment,
 		},
 		&cli.BoolFlag{
+			Name:     "preflight",
+			Usage:    "Probe-only: deploy a lightweight (~2 MB) busybox pod with the agent's placement to verify scheduling and image-pull readiness, then exit without capturing a snapshot. Fails fast on ImagePullBackOff/Unschedulable.",
+			Category: catAgentDeployment,
+		},
+		&cli.BoolFlag{
 			Name:     "no-cleanup",
 			Usage:    "Skip removal of Job and RBAC resources on completion (leaves cluster-admin binding active)",
 			Category: catAgentDeployment,
@@ -484,6 +489,12 @@ See examples/templates/snapshot-template.md.tmpl for a sample template.
 			opts, err := parseSnapshotCmdOptions(cmd, cfg)
 			if err != nil {
 				return err
+			}
+
+			// Preflight: probe-only scheduling/image-pull readiness check, then
+			// exit without capturing a snapshot.
+			if cmd.Bool("preflight") {
+				return snapshotter.RunPreflight(ctx, opts.toAgentConfig(), cmd.Root().Writer)
 			}
 
 			// Create factory
