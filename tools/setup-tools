@@ -271,7 +271,9 @@ fi
 log_info "Loading versions from .settings.yaml..."
 cd "${REPO_ROOT}"
 
-GO_VERSION=$(yq '.languages.go' .settings.yaml)
+# Go's pinned version lives in .go-version (single source of truth), not
+# .settings.yaml — reading the latter yields null and a bogus "version mismatch".
+GO_VERSION=$(tr -d '[:space:]' < .go-version 2>/dev/null || echo "")
 GOLANGCI_LINT_VERSION=$(yq '.linting.golangci_lint' .settings.yaml)
 YAMLLINT_VERSION=$(yq '.linting.yamllint' .settings.yaml)
 ADDLICENSE_VERSION=$(yq '.linting.addlicense' .settings.yaml)
@@ -985,6 +987,21 @@ for tool_spec in "${TOOLS[@]}"; do
         echo -e "${YELLOW}✗ not installed${NC}"
     fi
 done
+
+# Go-installed tools (golangci-lint, addlicense, go-licenses, ...) land in
+# $(go env GOPATH)/bin. If that directory is not on PATH they appear as
+# "not installed" above and `make lint`/`make license` cannot find them.
+if command_exists go; then
+    GOBIN_DIR="$(go env GOPATH)/bin"
+    case ":${PATH}:" in
+        *":${GOBIN_DIR}:"*) ;;
+        *)
+            echo ""
+            log_warning "${GOBIN_DIR} is not on your PATH — Go-installed tools won't be found by make targets."
+            log_info "Add it (persist in ~/.bashrc or ~/.zshrc):  export PATH=\"\$PATH:${GOBIN_DIR}\""
+            ;;
+    esac
+fi
 
 echo ""
 log_info "Next Steps:"

@@ -243,6 +243,22 @@ echo ""
 print_row "Tool" "Expected" "Installed" "Status"
 print_row "----" "--------" "---------" "------"
 
+# Check Go separately: its pinned version lives in .go-version (single source
+# of truth), not .settings.yaml, so the category loop below never sees it.
+go_expected=$(tr -d '[:space:]' < "${REPO_ROOT}/.go-version" 2>/dev/null || true)
+if command -v go &>/dev/null; then
+    go_installed=$(go version 2>/dev/null | grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | sed 's/go//' || true)
+    if [[ -z "$go_expected" ]]; then
+        print_row "go" "-" "${go_installed:--}" "⚠"
+    elif [[ "$go_installed" == "$go_expected"* ]]; then
+        print_row "go" "$go_expected" "$go_installed" "✓"
+    else
+        print_row "go" "$go_expected" "$go_installed" "⚠"
+    fi
+else
+    print_row "go" "${go_expected:--}" "-" "✗"
+fi
+
 # Get all categories from .settings.yaml
 categories=$(yq 'keys | .[]' "${VERSIONS_FILE}")
 
