@@ -338,7 +338,8 @@ build: ## Builds binaries for the current OS and architecture
 image: ## Builds and pushes container image (IMAGE_REGISTRY, IMAGE_TAG)
 	@set -e; \
 	echo "Building and pushing image to $(IMAGE_REGISTRY)/aicr:$(IMAGE_TAG)"; \
-	KO_DOCKER_REPO=$(IMAGE_REGISTRY) ko build --bare --sbom=none --tags=$(IMAGE_TAG) ./cmd/aicr
+	echo "Note: the aicr agent image builds on the CUDA base (~GB) — the FIRST build pulls it and can take several minutes; subsequent builds are fast. (-v shows live progress below.)"; \
+	KO_DOCKER_REPO=$(IMAGE_REGISTRY) ko build -v --bare --sbom=none --tags=$(IMAGE_TAG) ./cmd/aicr
 
 .PHONY: image-validators
 image-validators: build ## Builds per-phase validator images (IMAGE_REGISTRY, IMAGE_TAG)

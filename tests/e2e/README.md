@@ -48,8 +48,11 @@ for node in $(docker ps --filter "name=-worker" --format "{{.Names}}"); do
   docker exec "$node" chmod +x /usr/local/bin/nvidia-smi
 done
 
-# Build aicr image to local registry
-KO_DOCKER_REPO=localhost:5001/aicr ko build --bare --tags=local ./cmd/aicr
+# Build aicr image to local registry.
+# NOTE: the agent image builds on the CUDA base (~GB) — the FIRST build pulls it
+# and can take several minutes with little output (subsequent builds are fast).
+# -v shows live progress; --sbom=none skips the slow SBOM scan of the full OS image.
+KO_DOCKER_REPO=localhost:5001/aicr ko build -v --sbom=none --bare --tags=local ./cmd/aicr
 
 # Run tests
 FAKE_GPU_ENABLED=true AICR_IMAGE=localhost:5001/aicr:local ./tests/e2e/run.sh

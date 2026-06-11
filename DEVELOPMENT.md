@@ -573,6 +573,11 @@ See [kwok/README.md](kwok/README.md) for adding recipes, profiles, and troublesh
 | `make bump-minor` | Bump minor version (1.2.3 → 1.3.0) |
 | `make bump-patch` | Bump patch version (1.2.3 → 1.2.4) |
 
+> **First image build is slow.** `make image` builds the `aicr` agent image on
+> the CUDA base (`nvcr.io/nvidia/cuda:…`, ~GB). The first build pulls that base
+> and can take several minutes; subsequent builds are fast. `make image` runs
+> `ko -v` so you see live progress instead of a silent stall.
+
 ### Binary Attestation
 
 Release binaries are attested with SLSA Build Provenance v1 via a GoReleaser build
