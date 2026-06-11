@@ -1267,6 +1267,17 @@ RECIPE
   # Create validation namespace if it doesn't exist
   kubectl create namespace aicr-validation 2>&1 || true
 
+  # Remove validator Jobs left behind by earlier sections or prior runs. The
+  # deployment-checks section runs `aicr validate --namespace aicr-validation`
+  # with --no-cleanup (including a deliberately-failing health check), so a
+  # stale Failed Job (e.g. aicr-gpu-operator-health-*) can survive into this
+  # section. The job-success assertion below counts every validator Job in the
+  # namespace, so a leftover is miscounted as a failure of *this* run — the
+  # actual cause of the intermittent "Expected N succeeded jobs, got N-1" flake.
+  # Wait for deletion so the count reflects only the Jobs this validate creates.
+  kubectl delete jobs -n aicr-validation -l app.kubernetes.io/name=aicr \
+    --ignore-not-found --wait=true --timeout=60s 2>&1 || true
+
   # Run validation (this should create Jobs)
   local validation_result="${validate_dir}/validation-default-ns.json"
   local validation_exit=0
@@ -1301,9 +1312,12 @@ RECIPE
     fail "validate/job-rbac-role" "ClusterRoleBinding not found after --no-cleanup"
   fi
 
-  # Check if jobs were created (they may not exist if recipe has no checks)
+  # Check if jobs were created (they may not exist if recipe has no checks).
+  # Scope strictly to validator-owned Jobs via the managed-by label rather than
+  # an "aicr-" name prefix so the count cannot be skewed by unrelated Jobs.
+  local job_label_selector="app.kubernetes.io/name=aicr"
   local job_count
-  job_count=$(kubectl get jobs -n aicr-validation --no-headers 2>/dev/null | grep -c "aicr-" || echo "0")
+  job_count=$(kubectl get jobs -n aicr-validation -l "${job_label_selector}" --no-headers 2>/dev/null | grep -c . || echo "0")
 
   if [ "$job_count" -gt 0 ]; then
     detail "Validation jobs created: $job_count"
@@ -1312,14 +1326,14 @@ RECIPE
     # Check job success status (not just completion)
     # Job status shows "1/1" for completion but we need to check .status.succeeded
     local succeeded_jobs
-    succeeded_jobs=$(kubectl get jobs -n aicr-validation -o jsonpath='{range .items[?(@.status.succeeded==1)]}{.metadata.name}{"\n"}{end}' 2>/dev/null | wc -l)
+    succeeded_jobs=$(kubectl get jobs -n aicr-validation -l "${job_label_selector}" -o jsonpath='{range .items[?(@.status.succeeded==1)]}{.metadata.name}{"\n"}{end}' 2>/dev/null | wc -l)
 
     if [ "$succeeded_jobs" -eq "$job_count" ]; then
       detail "All jobs succeeded: $succeeded_jobs/$job_count"
       pass "validate/job-success"
     else
       local failed_jobs
-      failed_jobs=$(kubectl get jobs -n aicr-validation -o jsonpath='{range .items[?(@.status.failed>=1)]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+      failed_jobs=$(kubectl get jobs -n aicr-validation -l "${job_label_selector}" -o jsonpath='{range .items[?(@.status.failed>=1)]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
       if [ -n "$failed_jobs" ]; then
         warn "Some jobs failed:"
         echo "$failed_jobs" | while read -r job_name; do
