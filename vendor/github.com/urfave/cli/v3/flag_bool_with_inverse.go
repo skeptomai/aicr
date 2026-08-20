@@ -219,7 +219,7 @@ func (bif *BoolWithInverseFlag) Count() int {
 
 // GetDefaultText returns the default text for this flag
 func (bif *BoolWithInverseFlag) GetDefaultText() string {
-	if bif.Required {
+	if bif.DefaultText != "" {
 		return bif.DefaultText
 	}
 	return boolValue{}.ToString(bif.Value)
@@ -262,4 +262,12 @@ func (bif *BoolWithInverseFlag) IsDefaultVisible() bool {
 // TypeName is used for stringify/docs. For bool its a no-op
 func (bif *BoolWithInverseFlag) TypeName() string {
 	return "bool"
+}
+
+func (bif *BoolWithInverseFlag) SchemaType() string {
+	return "boolean"
+}
+
+func (bif *BoolWithInverseFlag) SchemaItemsType() string {
+	return ""
 }
