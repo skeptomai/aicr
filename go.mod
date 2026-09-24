@@ -20,9 +20,9 @@ require (
 	github.com/sigstore/sigstore/pkg/signature/kms/aws v1.10.8
 	github.com/sigstore/sigstore/pkg/signature/kms/azure v1.10.8
 	github.com/sigstore/sigstore/pkg/signature/kms/gcp v1.10.8
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.1
 	github.com/theupdateframework/go-tuf/v2 v2.4.2
-	github.com/urfave/cli/v3 v3.9.1
+	github.com/urfave/cli/v3 v3.13.0
 	golang.org/x/sync v0.21.0
 	golang.org/x/term v0.44.0
 	golang.org/x/time v0.15.0
@@ -181,7 +181,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
 	golang.org/x/mod v0.37.0 // indirect
